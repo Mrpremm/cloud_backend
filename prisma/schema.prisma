@@ -1,0 +1,169 @@
+// ──────────────────────────────────────────────
+// Cloud Drive – Prisma Schema
+// ──────────────────────────────────────────────
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Users ───────────────────────────────────
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  password     String
+  name         String
+  avatarUrl    String?
+  refreshToken String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  folders    Folder[]
+  files      File[]
+  shares     Share[]      @relation("ShareOwner")
+  sharedWith Share[]      @relation("ShareRecipient")
+  linkShares LinkShare[]
+  stars      Star[]
+  activities Activity[]
+
+  @@map("users")
+}
+
+// ─── Folders ─────────────────────────────────
+model Folder {
+  id        String    @id @default(uuid())
+  name      String
+  parentId  String?
+  userId    String
+  isRoot    Boolean   @default(false)
+  trashedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // Relations
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent   Folder?  @relation("FolderTree", fields: [parentId], references: [id])
+  children Folder[] @relation("FolderTree")
+  files    File[]
+
+  @@index([userId])
+  @@index([parentId])
+  @@map("folders")
+}
+
+// ─── Files ───────────────────────────────────
+model File {
+  id          String    @id @default(uuid())
+  name        String
+  mimeType    String
+  size        BigInt    @default(0)
+  storageKey  String    @unique
+  folderId    String?
+  userId      String
+  trashedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  folder   Folder?       @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  versions FileVersion[]
+  stars    Star[]
+
+  @@index([userId])
+  @@index([folderId])
+  @@index([name])
+  @@map("files")
+}
+
+// ─── File Versions ───────────────────────────
+model FileVersion {
+  id         String   @id @default(uuid())
+  fileId     String
+  version    Int      @default(1)
+  storageKey String
+  size       BigInt   @default(0)
+  createdAt  DateTime @default(now())
+
+  // Relations
+  file File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([fileId])
+  @@map("file_versions")
+}
+
+// ─── Shares (user-to-user) ───────────────────
+model Share {
+  id           String   @id @default(uuid())
+  resourceType String   // "file" | "folder"
+  resourceId   String
+  ownerId      String
+  sharedWithId String
+  permission   String   @default("view") // "view" | "edit"
+  createdAt    DateTime @default(now())
+
+  // Relations
+  owner      User @relation("ShareOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  sharedWith User @relation("ShareRecipient", fields: [sharedWithId], references: [id], onDelete: Cascade)
+
+  @@unique([resourceType, resourceId, sharedWithId])
+  @@index([ownerId])
+  @@index([sharedWithId])
+  @@map("shares")
+}
+
+// ─── Link Shares (public links) ──────────────
+model LinkShare {
+  id           String    @id @default(uuid())
+  token        String    @unique @default(uuid())
+  resourceType String    // "file" | "folder"
+  resourceId   String
+  userId       String
+  permission   String    @default("view")
+  expiresAt    DateTime?
+  createdAt    DateTime  @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+  @@map("link_shares")
+}
+
+// ─── Stars ───────────────────────────────────
+model Star {
+  id        String   @id @default(uuid())
+  userId    String
+  fileId    String
+  createdAt DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  file File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, fileId])
+  @@map("stars")
+}
+
+// ─── Activity Log ────────────────────────────
+model Activity {
+  id           String   @id @default(uuid())
+  userId       String
+  action       String   // "upload", "delete", "rename", "move", "share", "restore"
+  resourceType String   // "file" | "folder"
+  resourceId   String
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("activities")
+}
